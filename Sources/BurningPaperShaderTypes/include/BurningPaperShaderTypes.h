@@ -1,8 +1,14 @@
 #ifndef BURNING_PAPER_SHADER_TYPES_H
 #define BURNING_PAPER_SHADER_TYPES_H
 
-#include <stdint.h>
 #include <simd/simd.h>
+
+#ifdef __METAL_VERSION__
+typedef uint BurningPaperUInt32;
+#else
+#include <stdint.h>
+typedef uint32_t BurningPaperUInt32;
+#endif
 
 typedef struct BurningPaperUniforms {
     vector_float2 textureSize;
@@ -15,7 +21,7 @@ typedef struct BurningPaperUniforms {
     float ignitionSeed;
     float ignitionRadiusScale;
     float ignitionHeatScale;
-    uint32_t hasIgnition;
+    BurningPaperUInt32 hasIgnition;
     float burnSpeed;
     float spreadRate;
     float coolingRate;
@@ -30,10 +36,10 @@ typedef struct BurningPaperUniforms {
     float paperWrinkleAmount;
     float smokeAmount;
     float emberAmount;
-    uint32_t resetState;
-    uint32_t padding0;
-    uint32_t padding1;
-    uint32_t padding2;
+    BurningPaperUInt32 resetState;
+    BurningPaperUInt32 padding0;
+    BurningPaperUInt32 padding1;
+    BurningPaperUInt32 padding2;
 } BurningPaperUniforms;
 
 #endif /* BURNING_PAPER_SHADER_TYPES_H */
