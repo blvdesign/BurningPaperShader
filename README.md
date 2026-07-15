@@ -1,46 +1,137 @@
-# Burning Paper Shader
+# BurningPaper
 
-Native iOS prototype for a fullscreen paper burn effect. The app uses SwiftUI for layout and input, plus MetalKit for a persistent multi-channel burn simulation.
+BurningPaper is a native SwiftUI and Metal package that simulates paper
+burning away from interactive or programmatic ignition points. Burned regions
+become transparent, revealing the content behind the paper.
+
+> Demo placeholder: a compressed preview will be added to `docs/media` before
+> the `v0.1.0` release.
+
+## Features
+
+- SwiftUI component with built-in tap and continuous drag ignition
+- Programmatic point, path, and reset controls using normalized coordinates
+- Persistent GPU simulation for damage, heat, char, and ash
+- Procedural paper color, grain, fibers, and wrinkles
+- Tunable propagation, edge, stain, glow, flame, smoke, and embers
+- Transparent burned regions for layered reveals and transitions
+- Independent simulation state for each view
+- Lower-level Metal renderer for custom view integrations
 
 ## Requirements
 
-- Xcode 26.6
-- iOS 26 SDK
-- Metal Toolchain component installed in Xcode
-- iPhone with Developer Mode enabled for device runs
+- iOS 18 or later
+- Xcode 16 or later
+- A Metal-capable iPhone or iPad, or an iOS simulator
 
-## Run
+Your local simulator or device OS may require a newer Xcode and SDK. Xcode 26
+is not a package requirement.
 
-1. Open `BurningPaperShader.xcodeproj` in Xcode.
-2. Select the `BurningPaperShader` scheme.
-3. Select your iPhone.
-4. If Xcode asks, choose your Apple Account team under Signing & Capabilities.
-5. Press Run.
+## Installation
 
-The app starts as a fullscreen paper layer over an abstract image background. Tap or drag anywhere to ignite irregular burn clusters along the touched path.
+In Xcode, choose **File > Add Package Dependencies** and enter:
 
-Controls:
-
-- Counter-clockwise arrow: reset the paper.
-- Sliders icon: show or hide tuning controls.
-- Burn: propagation speed.
-- Paper: paper resistance and fiber variation.
-- Front: raggedness and complexity of the active burn edge.
-- Var: per-tap ignition shape variation.
-- Flame: red/orange heat and small flame hints along the active edge.
-- Wrink: crumpled paper texture intensity.
-- Smoke: subtle grey smoke/ash veil on the active edge.
-- Ember: sparse amber flecks on the active edge.
-
-The burn state is stored as material channels: damage, heat, char, and ash. This lets the shader age the edge from hot rim to dark char and dusty ash instead of rendering a single uniform outline.
-
-## Verify From Terminal
-
-```sh
-xcodebuild build-for-testing -project BurningPaperShader.xcodeproj -scheme BurningPaperShader -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5'
-xcodebuild test-without-building -project BurningPaperShader.xcodeproj -scheme BurningPaperShader -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5'
-xcodebuild build -project BurningPaperShader.xcodeproj -scheme BurningPaperShader -destination 'generic/platform=iOS Simulator'
-xcodebuild build -project BurningPaperShader.xcodeproj -scheme BurningPaperShader -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO
+```text
+https://github.com/blvdesign/BurningPaperShader
 ```
 
-The physical iPhone may appear offline until it is unlocked, trusted, paired in Xcode Device Hub, and Developer Mode is enabled.
+Select the `BurningPaper` product and add it to your application target.
+
+## SwiftUI usage
+
+Place the paper above the content it should reveal. The controller must remain
+alive for as long as the view is in use.
+
+```swift
+import BurningPaper
+import SwiftUI
+
+struct ContentView: View {
+    @StateObject private var burnController = BurningPaperController()
+
+    var body: some View {
+        ZStack {
+            Color.red
+            BurningPaperView(controller: burnController)
+        }
+        .ignoresSafeArea()
+    }
+}
+```
+
+Tap or drag across the view to ignite it. Pass `isInteractive: false` when the
+surface should respond only to controller commands.
+
+## Programmatic control
+
+Controller points are normalized to the view: `(0, 0)` is the top-left and
+`(1, 1)` is the bottom-right. Values outside that range are clamped.
+
+```swift
+burnController.ignite(at: CGPoint(x: 0.5, y: 0.5))
+burnController.ignite(path: [
+    CGPoint(x: 0.2, y: 0.4),
+    CGPoint(x: 0.8, y: 0.6)
+])
+burnController.reset()
+```
+
+## Configuration
+
+Create a configuration and pass it to `BurningPaperView`. Unsafe values are
+sanitized before they reach Metal.
+
+```swift
+let configuration = BurningPaperConfiguration(
+    burnSpeed: 1.1,
+    spreadRate: 1.25,
+    glowAmount: 0.55,
+    paperWrinkleAmount: 0.65,
+    smokeAmount: 0.2
+)
+
+BurningPaperView(
+    controller: burnController,
+    configuration: configuration
+)
+```
+
+See [Tuning](docs/TUNING.md) for every parameter, valid range, and practical
+adjustment guidance.
+
+## Lower-level renderer
+
+`BurningPaperRenderer` is available for applications that own an `MTKView` or
+need custom view composition. It conforms to `MTKViewDelegate`, accepts the
+same configuration, and exposes normalized point/path ignition and reset
+commands. Most applications should start with `BurningPaperView`.
+
+## Architecture and performance
+
+Each component owns a persistent, double-buffered GPU state texture. A Metal
+compute pass advances burn, heat, char, and ash; a render pass turns that state
+into procedural paper and transparent burned regions. Shaders are compiled as
+package resources and loaded from `Bundle.module`.
+
+The simulation texture preserves aspect ratio and caps its longest dimension
+at 1024 pixels. Ignition work and pending input are bounded per frame to keep
+fast gestures responsive. For details, see
+[Architecture](docs/ARCHITECTURE.md).
+
+## Example app
+
+1. Clone the repository.
+2. Open `Example/BurningPaperExample.xcodeproj` in Xcode.
+3. Select the `BurningPaperExample` scheme and an iOS 18 or later simulator or
+   device.
+4. Choose a development team if a device build requires signing, then run.
+
+The Example uses the package from the repository root and includes live tuning
+controls. Its generated abstract background is demonstration media only.
+
+## Project information
+
+- [Attributions and visual inspiration](ATTRIBUTIONS.md)
+- [Contributing](CONTRIBUTING.md)
+- [Changelog](CHANGELOG.md)
+- [MIT License](LICENSE)
