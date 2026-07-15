@@ -4,6 +4,17 @@ import Metal
 import XCTest
 
 final class BurningPaperPublicAPITests: XCTestCase {
+    @MainActor
+    func testConsumerCanConstructBurningPaperView() {
+        let controller = BurningPaperController()
+
+        _ = BurningPaperView(
+            controller: controller,
+            configuration: BurningPaperConfiguration(flameAmount: 0.2),
+            isInteractive: false
+        )
+    }
+
     func testConsumerCanConstructAndMutatePublicConfiguration() {
         var color = BurningPaperColor(red: 0.9, green: 0.8, blue: 0.7, alpha: 1)
         color.alpha = 0.6
