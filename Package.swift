@@ -24,7 +24,7 @@ let package = Package(
         ),
         .testTarget(
             name: "BurningPaperTests",
-            dependencies: ["BurningPaper"]
+            dependencies: ["BurningPaper", "BurningPaperShaderTypes"]
         )
     ]
 )
