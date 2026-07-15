@@ -13,6 +13,8 @@ final class UniformABITests: XCTestCase {
         XCTAssertEqual(MemoryLayout<BurningPaperUniforms>.offset(of: \.time), 32)
         XCTAssertEqual(MemoryLayout<BurningPaperUniforms>.offset(of: \.ignitionPoint), 40)
         XCTAssertEqual(MemoryLayout<BurningPaperUniforms>.offset(of: \.hasIgnition), 64)
-        XCTAssertEqual(MemoryLayout<BurningPaperUniforms>.offset(of: \.resetState), 128)
+        XCTAssertEqual(MemoryLayout<BurningPaperUniforms>.offset(of: \.resetState), 124)
+        XCTAssertEqual(MemoryLayout<BurningPaperUniforms>.offset(of: \.padding0), 128)
+        XCTAssertEqual(MemoryLayout<BurningPaperUniforms>.offset(of: \.padding2), 136)
     }
 }

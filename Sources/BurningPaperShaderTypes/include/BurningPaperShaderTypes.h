@@ -36,7 +36,6 @@ typedef struct BurningPaperUniforms {
     float paperWrinkleAmount;
     float smokeAmount;
     float emberAmount;
-    BurningPaperUInt32 paddingBeforeReset;
     BurningPaperUInt32 resetState;
     BurningPaperUInt32 padding0;
     BurningPaperUInt32 padding1;
