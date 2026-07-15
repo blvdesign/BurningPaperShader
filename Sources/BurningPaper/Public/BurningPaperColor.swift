@@ -1,9 +1,18 @@
+/// An RGBA color used by the burning paper renderer.
 public struct BurningPaperColor: Equatable, Sendable {
+    /// The red component. Sanitized to `0...1` before rendering.
     public var red: Float
+
+    /// The green component. Sanitized to `0...1` before rendering.
     public var green: Float
+
+    /// The blue component. Sanitized to `0...1` before rendering.
     public var blue: Float
+
+    /// The alpha component. Sanitized to `0...1` before rendering.
     public var alpha: Float
 
+    /// Creates a color from red, green, blue, and alpha components.
     public init(red: Float, green: Float, blue: Float, alpha: Float) {
         self.red = red
         self.green = green
@@ -11,6 +20,7 @@ public struct BurningPaperColor: Equatable, Sendable {
         self.alpha = alpha
     }
 
+    /// The warm white color used by the default procedural paper.
     public static let naturalWhite = BurningPaperColor(
         red: 0.978,
         green: 0.966,
@@ -19,17 +29,29 @@ public struct BurningPaperColor: Equatable, Sendable {
     )
 
     var sanitized: BurningPaperColor {
-        BurningPaperColor(
-            red: red.burningPaperClamped(to: 0...1),
-            green: green.burningPaperClamped(to: 0...1),
-            blue: blue.burningPaperClamped(to: 0...1),
-            alpha: alpha.burningPaperClamped(to: 0...1)
+        let fallback = Self.naturalWhite
+
+        return BurningPaperColor(
+            red: red.burningPaperSanitized(to: 0...1, fallback: fallback.red),
+            green: green.burningPaperSanitized(to: 0...1, fallback: fallback.green),
+            blue: blue.burningPaperSanitized(to: 0...1, fallback: fallback.blue),
+            alpha: alpha.burningPaperSanitized(to: 0...1, fallback: fallback.alpha)
         )
     }
 }
 
 extension Float {
-    func burningPaperClamped(to range: ClosedRange<Float>) -> Float {
-        min(max(self, range.lowerBound), range.upperBound)
+    func burningPaperSanitized(to range: ClosedRange<Float>, fallback: Float) -> Float {
+        if isNaN {
+            return fallback
+        }
+        if self == .infinity {
+            return range.upperBound
+        }
+        if self == -.infinity {
+            return range.lowerBound
+        }
+
+        return min(max(self, range.lowerBound), range.upperBound)
     }
 }

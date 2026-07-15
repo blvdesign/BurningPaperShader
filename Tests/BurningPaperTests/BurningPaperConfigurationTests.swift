@@ -119,4 +119,96 @@ final class BurningPaperConfigurationTests: XCTestCase {
             BurningPaperColor(red: 0.8, green: 0.7, blue: 0.6, alpha: 0.9)
         )
     }
+
+    func testSanitizedReplacesEveryNaNWithItsDefaultAndContainsNoNaN() {
+        let sanitized = BurningPaperConfiguration(
+            burnSpeed: .nan,
+            spreadRate: .nan,
+            coolingRate: .nan,
+            ignitionRadius: .nan,
+            edgeWidth: .nan,
+            stainWidth: .nan,
+            charWidth: .nan,
+            glowAmount: .nan,
+            noiseStrength: .nan,
+            frontComplexity: .nan,
+            ignitionVariance: .nan,
+            flameAmount: .nan,
+            paperWrinkleAmount: .nan,
+            smokeAmount: .nan,
+            emberAmount: .nan,
+            paperColor: BurningPaperColor(red: .nan, green: .nan, blue: .nan, alpha: .nan)
+        ).sanitized
+
+        XCTAssertEqual(sanitized, .default)
+
+        let scalars = [
+            sanitized.burnSpeed,
+            sanitized.spreadRate,
+            sanitized.coolingRate,
+            sanitized.ignitionRadius,
+            sanitized.edgeWidth,
+            sanitized.stainWidth,
+            sanitized.charWidth,
+            sanitized.glowAmount,
+            sanitized.noiseStrength,
+            sanitized.frontComplexity,
+            sanitized.ignitionVariance,
+            sanitized.flameAmount,
+            sanitized.paperWrinkleAmount,
+            sanitized.smokeAmount,
+            sanitized.emberAmount,
+            sanitized.paperColor.red,
+            sanitized.paperColor.green,
+            sanitized.paperColor.blue,
+            sanitized.paperColor.alpha
+        ]
+        XCTAssertFalse(scalars.contains(where: \.isNaN))
+    }
+
+    func testSanitizedClampsPositiveAndNegativeInfinity() {
+        let sanitized = BurningPaperConfiguration(
+            burnSpeed: .infinity,
+            spreadRate: -.infinity,
+            paperColor: BurningPaperColor(
+                red: .infinity,
+                green: -.infinity,
+                blue: .infinity,
+                alpha: -.infinity
+            )
+        ).sanitized
+
+        XCTAssertEqual(sanitized.burnSpeed, 3.0)
+        XCTAssertEqual(sanitized.spreadRate, 0.0)
+        XCTAssertEqual(
+            sanitized.paperColor,
+            BurningPaperColor(red: 1, green: 0, blue: 1, alpha: 0)
+        )
+    }
+
+    func testSanitizedPreservesInRangeValuesAndIsIdempotent() {
+        let configuration = BurningPaperConfiguration(
+            burnSpeed: 1.01,
+            spreadRate: 1.02,
+            coolingRate: 0.13,
+            ignitionRadius: 0.014,
+            edgeWidth: 0.015,
+            stainWidth: 0.16,
+            charWidth: 0.017,
+            glowAmount: 0.28,
+            noiseStrength: 0.39,
+            frontComplexity: 0.41,
+            ignitionVariance: 0.52,
+            flameAmount: 0.63,
+            paperWrinkleAmount: 0.74,
+            smokeAmount: 0.25,
+            emberAmount: 0.36,
+            paperColor: BurningPaperColor(red: 0.87, green: 0.76, blue: 0.65, alpha: 0.54)
+        )
+
+        let sanitized = configuration.sanitized
+
+        XCTAssertEqual(sanitized, configuration)
+        XCTAssertEqual(sanitized.sanitized, sanitized)
+    }
 }
