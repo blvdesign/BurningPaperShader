@@ -80,4 +80,75 @@ final class BurnIgnitionPlannerTests: XCTestCase {
 
         XCTAssertEqual(ignitions.count, 1)
     }
+
+    func testLongPathFitsRendererBudgetAndPreservesEndpointCoverage() {
+        let points = (0...240).map { index in
+            CGPoint(x: CGFloat(index) / 240, y: 0.5)
+        }
+        var random = SeededRandomNumberGenerator(seed: 42)
+
+        let ignitions = BurnIgnitionPlanner.ignitions(for: points, random: &random)
+
+        XCTAssertFalse(ignitions.isEmpty)
+        XCTAssertLessThanOrEqual(ignitions.count, BurnIgnitionPlanner.maximumIgnitionsPerPath)
+        XCTAssertEqual(BurnIgnitionPlanner.maximumIgnitionsPerPath, 96)
+        XCTAssertEqual(ignitions.first?.normalizedPoint, points.first)
+        XCTAssertGreaterThan(ignitions.last?.normalizedPoint.x ?? 0, 0.95)
+        XCTAssertLessThan(abs((ignitions.last?.normalizedPoint.y ?? 0) - 0.5), 0.08)
+    }
+
+    func testDirectInvalidEndReturnsNoIgnitions() {
+        var random = SeededRandomNumberGenerator(seed: 42)
+
+        let nanEnd = BurnIgnitionPlanner.ignitions(
+            from: CGPoint(x: 0.2, y: 0.2),
+            to: CGPoint(x: .nan, y: 0.5),
+            random: &random
+        )
+        let infiniteEnd = BurnIgnitionPlanner.ignitions(
+            from: nil,
+            to: CGPoint(x: 0.5, y: .infinity),
+            random: &random
+        )
+
+        XCTAssertTrue(nanEnd.isEmpty)
+        XCTAssertTrue(infiniteEnd.isEmpty)
+    }
+
+    func testDirectInvalidStartFallsBackToSingleValidEndIgnition() {
+        var random = SeededRandomNumberGenerator(seed: 42)
+
+        let ignitions = BurnIgnitionPlanner.ignitions(
+            from: CGPoint(x: -.infinity, y: 0.2),
+            to: CGPoint(x: 0.4, y: 0.6),
+            random: &random
+        )
+
+        XCTAssertEqual(ignitions.count, 1)
+        XCTAssertEqual(ignitions.first?.normalizedPoint, CGPoint(x: 0.4, y: 0.6))
+    }
+
+    func testPathSkipsNonFinitePointsWithoutChangingValidExpansion() {
+        let validPoints = [
+            CGPoint(x: 0.1, y: 0.2),
+            CGPoint(x: 0.5, y: 0.45),
+            CGPoint(x: 0.8, y: 0.7)
+        ]
+        var validRandom = SeededRandomNumberGenerator(seed: 73)
+        var invalidRandom = SeededRandomNumberGenerator(seed: 73)
+
+        let valid = BurnIgnitionPlanner.ignitions(for: validPoints, random: &validRandom)
+        let withInvalidPoints = BurnIgnitionPlanner.ignitions(
+            for: [
+                validPoints[0],
+                CGPoint(x: .nan, y: 0.3),
+                validPoints[1],
+                CGPoint(x: 0.6, y: .infinity),
+                validPoints[2]
+            ],
+            random: &invalidRandom
+        )
+
+        XCTAssertEqual(withInvalidPoints, valid)
+    }
 }

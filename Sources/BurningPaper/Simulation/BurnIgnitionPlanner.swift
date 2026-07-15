@@ -17,11 +17,18 @@ struct SeededRandomNumberGenerator: RandomNumberGenerator {
 }
 
 enum BurnIgnitionPlanner {
+    static let maximumIgnitionsPerPath = 96
+
     static func ignitions<R: RandomNumberGenerator>(
         from start: CGPoint?,
         to end: CGPoint,
         random: inout R
     ) -> [BurnIgnition] {
+        guard isFinite(end) else {
+            return []
+        }
+
+        let start = start.flatMap { isFinite($0) ? $0 : nil }
         guard let start else {
             return [makeIgnition(at: end, radiusScale: Float.random(in: 0.72...1.36, using: &random), random: &random)]
         }
@@ -90,19 +97,39 @@ enum BurnIgnitionPlanner {
         for normalizedPoints: [CGPoint],
         random: inout R
     ) -> [BurnIgnition] {
-        guard let first = normalizedPoints.first else {
+        let validPoints = normalizedPoints.filter(isFinite)
+        guard let first = validPoints.first else {
             return []
         }
 
         var result = ignitions(from: nil, to: first, random: &random)
         var previous = first
 
-        for point in normalizedPoints.dropFirst() where point != previous {
+        for point in validPoints.dropFirst() where point != previous {
             result.append(contentsOf: ignitions(from: previous, to: point, random: &random))
             previous = point
         }
 
-        return result
+        return evenlyDownsampled(result, maximumCount: maximumIgnitionsPerPath)
+    }
+
+    private static func evenlyDownsampled(
+        _ ignitions: [BurnIgnition],
+        maximumCount: Int
+    ) -> [BurnIgnition] {
+        guard ignitions.count > maximumCount else {
+            return ignitions
+        }
+
+        let lastIndex = ignitions.count - 1
+        return (0..<maximumCount).map { sampleIndex in
+            let position = Double(sampleIndex) * Double(lastIndex) / Double(maximumCount - 1)
+            return ignitions[Int(position.rounded())]
+        }
+    }
+
+    private static func isFinite(_ point: CGPoint) -> Bool {
+        point.x.isFinite && point.y.isFinite
     }
 
     private static func makeIgnition<R: RandomNumberGenerator>(

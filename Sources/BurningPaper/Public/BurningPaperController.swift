@@ -21,7 +21,8 @@ struct BurningPaperCommand: Equatable, Identifiable {
 @MainActor
 @available(macOS 10.15, *)
 public final class BurningPaperController: ObservableObject {
-    @Published private(set) var command: BurningPaperCommand?
+    @Published private(set) var commandRevision: UInt64 = 0
+    private var pendingCommands: [BurningPaperCommand] = []
 
     /// Creates a controller with no pending command.
     public init() {}
@@ -35,7 +36,7 @@ public final class BurningPaperController: ObservableObject {
             return
         }
 
-        command = BurningPaperCommand(kind: .ignite([point]))
+        enqueue(.ignite([point]))
     }
 
     /// Ignites the paper along a path of normalized points.
@@ -48,12 +49,23 @@ public final class BurningPaperController: ObservableObject {
             return
         }
 
-        command = BurningPaperCommand(kind: .ignite(points))
+        enqueue(.ignite(points))
     }
 
     /// Resets the paper to its initial unburned state.
     public func reset() {
-        command = BurningPaperCommand(kind: .reset)
+        enqueue(.reset)
+    }
+
+    func drainPendingCommands() -> [BurningPaperCommand] {
+        let commands = pendingCommands
+        pendingCommands.removeAll(keepingCapacity: true)
+        return commands
+    }
+
+    private func enqueue(_ kind: BurningPaperCommand.Kind) {
+        pendingCommands.append(BurningPaperCommand(kind: kind))
+        commandRevision &+= 1
     }
 
     private static func normalized(_ point: CGPoint) -> CGPoint? {

@@ -11,7 +11,7 @@ final class BurningPaperControllerTests: XCTestCase {
         controller.ignite(at: CGPoint(x: 0.25, y: 0.75))
 
         XCTAssertEqual(
-            controller.command?.kind,
+            controller.drainPendingCommands().first?.kind,
             .ignite([CGPoint(x: 0.25, y: 0.75)])
         )
     }
@@ -26,7 +26,7 @@ final class BurningPaperControllerTests: XCTestCase {
 
         controller.ignite(path: points)
 
-        XCTAssertEqual(controller.command?.kind, .ignite(points))
+        XCTAssertEqual(controller.drainPendingCommands().first?.kind, .ignite(points))
     }
 
     func testResetPublishesResetCommand() {
@@ -34,7 +34,7 @@ final class BurningPaperControllerTests: XCTestCase {
 
         controller.reset()
 
-        XCTAssertEqual(controller.command?.kind, .reset)
+        XCTAssertEqual(controller.drainPendingCommands().first?.kind, .reset)
     }
 
     func testCoordinatesAreClampedToNormalizedRange() {
@@ -46,7 +46,7 @@ final class BurningPaperControllerTests: XCTestCase {
         ])
 
         XCTAssertEqual(
-            controller.command?.kind,
+            controller.drainPendingCommands().first?.kind,
             .ignite([
                 CGPoint(x: 0, y: 1),
                 CGPoint(x: 1, y: 0)
@@ -59,33 +59,31 @@ final class BurningPaperControllerTests: XCTestCase {
         let point = CGPoint(x: 0.5, y: 0.5)
 
         controller.ignite(at: point)
-        let firstID = controller.command?.id
         controller.ignite(at: point)
-        let secondID = controller.command?.id
+        let commands = controller.drainPendingCommands()
 
-        XCTAssertNotNil(firstID)
-        XCTAssertNotNil(secondID)
-        XCTAssertNotEqual(firstID, secondID)
+        XCTAssertEqual(commands.count, 2)
+        XCTAssertNotEqual(commands[0].id, commands[1].id)
     }
 
     func testEmptyPathIsANoOp() {
         let controller = BurningPaperController()
 
-        controller.reset()
-        let commandBeforeEmptyPath = controller.command
+        let revisionBeforeEmptyPath = controller.commandRevision
         controller.ignite(path: [])
 
-        XCTAssertEqual(controller.command, commandBeforeEmptyPath)
+        XCTAssertEqual(controller.commandRevision, revisionBeforeEmptyPath)
+        XCTAssertTrue(controller.drainPendingCommands().isEmpty)
     }
 
     func testNonFinitePointIsRejected() {
         let controller = BurningPaperController()
 
-        controller.reset()
-        let commandBeforeInvalidPoint = controller.command
+        let revisionBeforeInvalidPoint = controller.commandRevision
         controller.ignite(at: CGPoint(x: .nan, y: 0.5))
 
-        XCTAssertEqual(controller.command, commandBeforeInvalidPoint)
+        XCTAssertEqual(controller.commandRevision, revisionBeforeInvalidPoint)
+        XCTAssertTrue(controller.drainPendingCommands().isEmpty)
     }
 
     func testNonFinitePathPointsAreRemovedBeforePublishing() {
@@ -98,11 +96,49 @@ final class BurningPaperControllerTests: XCTestCase {
         ])
 
         XCTAssertEqual(
-            controller.command?.kind,
+            controller.drainPendingCommands().first?.kind,
             .ignite([
                 CGPoint(x: 0.1, y: 0.2),
                 CGPoint(x: 0.8, y: 0.9)
             ])
+        )
+    }
+
+    func testSynchronousCommandsDrainOnceInExactOrder() {
+        let controller = BurningPaperController()
+        let firstPoint = CGPoint(x: 0.2, y: 0.3)
+        let secondPoint = CGPoint(x: 0.7, y: 0.8)
+
+        controller.reset()
+        controller.ignite(at: firstPoint)
+        controller.ignite(at: secondPoint)
+
+        let commands = controller.drainPendingCommands()
+
+        XCTAssertEqual(commands.map(\.kind), [
+            .reset,
+            .ignite([firstPoint]),
+            .ignite([secondPoint])
+        ])
+        XCTAssertEqual(controller.commandRevision, 3)
+        XCTAssertTrue(controller.drainPendingCommands().isEmpty)
+        XCTAssertEqual(controller.commandRevision, 3)
+    }
+
+    func testInvalidAndEmptyInputsDoNotChangeRevisionOrQueue() {
+        let controller = BurningPaperController()
+        let validPoint = CGPoint(x: 0.25, y: 0.75)
+        controller.ignite(at: validPoint)
+        let revisionBeforeInvalidInputs = controller.commandRevision
+
+        controller.ignite(path: [])
+        controller.ignite(at: CGPoint(x: .nan, y: 0.5))
+        controller.ignite(path: [CGPoint(x: 0.5, y: .infinity)])
+
+        XCTAssertEqual(controller.commandRevision, revisionBeforeInvalidInputs)
+        XCTAssertEqual(
+            controller.drainPendingCommands().map(\.kind),
+            [.ignite([validPoint])]
         )
     }
 }
