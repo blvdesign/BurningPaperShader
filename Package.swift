@@ -3,7 +3,7 @@
 import PackageDescription
 
 let package = Package(
-    name: "BurningPaperShader",
+    name: "BurningPaper",
     platforms: [
         .iOS("18.0")
     ],

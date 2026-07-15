@@ -1,4 +1,6 @@
 import BurningPaper
+import CoreGraphics
+import Metal
 import XCTest
 
 final class BurningPaperPublicAPITests: XCTestCase {
@@ -15,5 +17,20 @@ final class BurningPaperPublicAPITests: XCTestCase {
         XCTAssertEqual(configuration.flameAmount, 0.3)
         XCTAssertEqual(BurningPaperColor.naturalWhite.alpha, 1)
         XCTAssertEqual(BurningPaperConfiguration.default.paperColor, .naturalWhite)
+    }
+
+    func testConsumerCanUseLowLevelRendererAPI() throws {
+        let device = try XCTUnwrap(MTLCreateSystemDefaultDevice())
+        let renderer = try BurningPaperRenderer(
+            device: device,
+            colorPixelFormat: .bgra8Unorm
+        )
+
+        renderer.configuration = BurningPaperConfiguration(flameAmount: 0.2)
+        renderer.ignite(at: CGPoint(x: 0.5, y: 0.5))
+        renderer.ignite(path: [CGPoint(x: 0.2, y: 0.2), CGPoint(x: 0.8, y: 0.8)])
+        renderer.reset()
+
+        XCTAssertEqual(renderer.configuration.flameAmount, 0.2)
     }
 }
