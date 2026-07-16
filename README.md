@@ -4,8 +4,7 @@ BurningPaper is a native SwiftUI and Metal package that simulates paper
 burning away from interactive or programmatic ignition points. Burned regions
 become transparent, revealing the content behind the paper.
 
-> Demo placeholder: a compressed preview will be added to `docs/media` before
-> the `v0.1.0` release.
+![BurningPaper tap and drag demo](docs/media/demo.gif)
 
 ## Features
 
