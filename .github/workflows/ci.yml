@@ -59,25 +59,25 @@ jobs:
             )
             next unless sdk_status.success?
 
+            result << [Gem::Version.new(version), path]
+          end
+
+          candidates.sort_by!(&:first)
+          candidates.reverse! if ENV.fetch("XCODE_SELECTION") == "latest"
+
+          selected = candidates.find do |_, path|
+            environment = { "DEVELOPER_DIR" => File.join(path, "Contents", "Developer") }
             destinations_output, destinations_status = Open3.capture2e(
               environment,
               "xcodebuild", "-scheme", "BurningPaper", "-showdestinations"
             )
-            next unless destinations_status.success?
+            next false unless destinations_status.success?
 
             available_destinations = destinations_output[
               /Available destinations for the "BurningPaper" scheme:(.*?)(?:Ineligible destinations|\z)/m,
               1
             ]
-            next unless available_destinations&.include?("platform:iOS Simulator")
-
-            result << [Gem::Version.new(version), path]
-          end
-
-          selected = if ENV.fetch("XCODE_SELECTION") == "minimum"
-            candidates.min_by(&:first)
-          else
-            candidates.max_by(&:first)
+            available_destinations&.include?("platform:iOS Simulator")
           end
           puts selected.last if selected
           RUBY
