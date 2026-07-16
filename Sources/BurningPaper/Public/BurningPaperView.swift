@@ -93,6 +93,35 @@ final class BurningPaperViewState: ObservableObject {
     }
 }
 
+@MainActor
+struct BurningPaperInteractionSurface<Content: View>: View {
+    let content: Content
+    let interaction: BurningPaperViewState
+    let size: CGSize
+    let isInteractive: Bool
+
+    var body: some View {
+        content
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { value in
+                        interaction.dragChanged(
+                            location: value.location,
+                            in: size
+                        )
+                    }
+                    .onEnded { value in
+                        interaction.dragEnded(
+                            location: value.location,
+                            in: size
+                        )
+                    },
+                isEnabled: isInteractive
+            )
+    }
+}
+
 /// A SwiftUI surface that renders and optionally interacts with burning paper.
 ///
 /// Each view requires its own ``BurningPaperController``. Sharing one controller
@@ -121,27 +150,12 @@ public struct BurningPaperView: View {
 
     public var body: some View {
         GeometryReader { proxy in
-            if isInteractive {
-                metalView
-                    .contentShape(Rectangle())
-                    .gesture(
-                        DragGesture(minimumDistance: 0)
-                            .onChanged { value in
-                                interaction.dragChanged(
-                                    location: value.location,
-                                    in: proxy.size
-                                )
-                            }
-                            .onEnded { value in
-                                interaction.dragEnded(
-                                    location: value.location,
-                                    in: proxy.size
-                                )
-                            }
-                    )
-            } else {
-                metalView
-            }
+            BurningPaperInteractionSurface(
+                content: metalView,
+                interaction: interaction,
+                size: proxy.size,
+                isInteractive: isInteractive
+            )
         }
     }
 

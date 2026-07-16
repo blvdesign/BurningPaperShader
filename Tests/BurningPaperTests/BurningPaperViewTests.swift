@@ -1,5 +1,6 @@
 import CoreGraphics
 import MetalKit
+import SwiftUI
 import XCTest
 @testable import BurningPaper
 
@@ -215,6 +216,41 @@ final class BurningPaperViewTests: XCTestCase {
         XCTAssertEqual(ignitions.count, 1)
     }
 
+    func testInteractionSurfacePreservesRepresentableIdentityWhenDisabled() throws {
+        let controller = BurningPaperController()
+        let interaction = BurningPaperViewState(controller: controller, seed: 8)
+        let lifecycle = RepresentableLifecycle()
+        let host = UIHostingController(
+            rootView: BurningPaperInteractionSurface(
+                content: LifecycleTrackingView(lifecycle: lifecycle),
+                interaction: interaction,
+                size: CGSize(width: 200, height: 200),
+                isInteractive: true
+            )
+        )
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 200, height: 200))
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        host.loadViewIfNeeded()
+        host.view.layoutIfNeeded()
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01))
+        let initialView = try XCTUnwrap(lifecycle.view)
+
+        host.rootView = BurningPaperInteractionSurface(
+            content: LifecycleTrackingView(lifecycle: lifecycle),
+            interaction: interaction,
+            size: CGSize(width: 200, height: 200),
+            isInteractive: false
+        )
+        host.view.layoutIfNeeded()
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01))
+
+        XCTAssertEqual(lifecycle.makeCount, 1)
+        XCTAssertTrue(initialView === lifecycle.view)
+        window.isHidden = true
+        window.rootViewController = nil
+    }
+
     func testMetalViewUsesTransparentHighRefreshRenderingContract() {
         let view = MTKView()
 
@@ -282,4 +318,27 @@ private final class RecordingBurningPaperRenderer: BurningPaperRendering {
 
 private enum TestRendererError: Error, Equatable {
     case failed
+}
+
+@MainActor
+private final class RepresentableLifecycle {
+    private(set) var makeCount = 0
+    private(set) weak var view: UIView?
+
+    func record(_ view: UIView) {
+        makeCount += 1
+        self.view = view
+    }
+}
+
+private struct LifecycleTrackingView: UIViewRepresentable {
+    let lifecycle: RepresentableLifecycle
+
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView()
+        lifecycle.record(view)
+        return view
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) {}
 }
