@@ -3,27 +3,45 @@ import SwiftUI
 
 @MainActor
 final class BurningPaperViewState: ObservableObject {
-    @Published private(set) var revision: UInt64 = 0
-
+    private weak var controller: BurningPaperController?
+    private var isInteractive = true
     private var lastDragPoint: CGPoint?
-    private var pendingIgnitions: [[BurnIgnition]] = []
+    private var observedResetRevision: UInt64
     private var random: SeededRandomNumberGenerator
 
-    init(seed: UInt64 = UInt64.random(in: 1...UInt64.max)) {
+    init(
+        controller: BurningPaperController,
+        seed: UInt64 = UInt64.random(in: 1...UInt64.max)
+    ) {
+        self.controller = controller
+        observedResetRevision = controller.resetRevision
         random = SeededRandomNumberGenerator(seed: seed)
     }
 
-    func dragChanged(location: CGPoint, in size: CGSize, isInteractive: Bool) {
-        guard isInteractive else {
-            lastDragPoint = nil
+    func bind(to controller: BurningPaperController) {
+        guard self.controller !== controller else {
             return
         }
 
+        self.controller = controller
+        observedResetRevision = controller.resetRevision
+        lastDragPoint = nil
+    }
+
+    func setInteractive(_ isInteractive: Bool) {
+        self.isInteractive = isInteractive
+        if !isInteractive {
+            lastDragPoint = nil
+        }
+    }
+
+    func dragChanged(location: CGPoint, in size: CGSize) {
+        guard prepareForDrag() else { return }
         planIgnitions(to: location, in: size)
     }
 
-    func dragEnded(location: CGPoint, in size: CGSize, isInteractive: Bool) {
-        guard isInteractive else {
+    func dragEnded(location: CGPoint, in size: CGSize) {
+        guard prepareForDrag() else {
             lastDragPoint = nil
             return
         }
@@ -32,15 +50,21 @@ final class BurningPaperViewState: ObservableObject {
         lastDragPoint = nil
     }
 
-    func drainPendingIgnitions() -> [[BurnIgnition]] {
-        let batches = pendingIgnitions
-        pendingIgnitions.removeAll(keepingCapacity: true)
-        return batches
+    func resetDragState() {
+        lastDragPoint = nil
+        observedResetRevision = controller?.resetRevision ?? observedResetRevision
     }
 
-    func clearPendingIgnitions() {
-        pendingIgnitions.removeAll(keepingCapacity: true)
-        lastDragPoint = nil
+    private func prepareForDrag() -> Bool {
+        guard isInteractive, let controller else {
+            return false
+        }
+
+        if observedResetRevision != controller.resetRevision {
+            lastDragPoint = nil
+            observedResetRevision = controller.resetRevision
+        }
+        return true
     }
 
     private func planIgnitions(to location: CGPoint, in size: CGSize) {
@@ -65,12 +89,14 @@ final class BurningPaperViewState: ObservableObject {
             return
         }
 
-        pendingIgnitions.append(ignitions)
-        revision &+= 1
+        controller?.ignite(ignitions)
     }
 }
 
 /// A SwiftUI surface that renders and optionally interacts with burning paper.
+///
+/// Each view requires its own ``BurningPaperController``. Sharing one controller
+/// between multiple views is unsupported because command delivery is one-to-one.
 @MainActor
 public struct BurningPaperView: View {
     @ObservedObject private var controller: BurningPaperController
@@ -79,14 +105,16 @@ public struct BurningPaperView: View {
     private let configuration: BurningPaperConfiguration
     private let isInteractive: Bool
 
-    /// Creates a burning-paper surface driven by the supplied controller.
+    /// Creates a burning-paper surface driven by its dedicated controller.
     public init(
         controller: BurningPaperController,
         configuration: BurningPaperConfiguration = .default,
         isInteractive: Bool = true
     ) {
         _controller = ObservedObject(wrappedValue: controller)
-        _interaction = StateObject(wrappedValue: BurningPaperViewState())
+        _interaction = StateObject(
+            wrappedValue: BurningPaperViewState(controller: controller)
+        )
         self.configuration = configuration
         self.isInteractive = isInteractive
     }
@@ -101,15 +129,13 @@ public struct BurningPaperView: View {
                             .onChanged { value in
                                 interaction.dragChanged(
                                     location: value.location,
-                                    in: proxy.size,
-                                    isInteractive: true
+                                    in: proxy.size
                                 )
                             }
                             .onEnded { value in
                                 interaction.dragEnded(
                                     location: value.location,
-                                    in: proxy.size,
-                                    isInteractive: true
+                                    in: proxy.size
                                 )
                             }
                     )
@@ -124,8 +150,8 @@ public struct BurningPaperView: View {
             controller: controller,
             configuration: configuration,
             interaction: interaction,
-            commandRevision: controller.commandRevision,
-            interactionRevision: interaction.revision
+            isInteractive: isInteractive,
+            commandRevision: controller.commandRevision
         )
     }
 }

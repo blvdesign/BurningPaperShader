@@ -5,6 +5,7 @@ import Foundation
 struct BurningPaperCommand: Equatable, Identifiable {
     enum Kind: Equatable {
         case ignite([CGPoint])
+        case ignitePlanned([BurnIgnition])
         case reset
     }
 
@@ -17,14 +18,18 @@ struct BurningPaperCommand: Equatable, Identifiable {
     }
 }
 
-/// Sends programmatic ignition and reset commands to a burning paper view.
+/// Sends programmatic ignition and reset commands to one burning paper view.
+///
+/// A controller has one-to-one command delivery and must not be shared between
+/// multiple ``BurningPaperView`` instances.
 @MainActor
 @available(macOS 10.15, *)
 public final class BurningPaperController: ObservableObject {
     @Published private(set) var commandRevision: UInt64 = 0
+    private(set) var resetRevision: UInt64 = 0
     private var pendingCommands: [BurningPaperCommand] = []
 
-    /// Creates a controller with no pending command.
+    /// Creates a controller for one burning paper view with no pending command.
     public init() {}
 
     /// Ignites the paper at a normalized point.
@@ -54,7 +59,16 @@ public final class BurningPaperController: ObservableObject {
 
     /// Resets the paper to its initial unburned state.
     public func reset() {
+        resetRevision &+= 1
         enqueue(.reset)
+    }
+
+    func ignite(_ ignitions: [BurnIgnition]) {
+        guard !ignitions.isEmpty else {
+            return
+        }
+
+        enqueue(.ignitePlanned(ignitions))
     }
 
     func drainPendingCommands() -> [BurningPaperCommand] {

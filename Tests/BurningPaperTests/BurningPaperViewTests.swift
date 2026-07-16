@@ -8,7 +8,7 @@ final class BurningPaperViewTests: XCTestCase {
     func testControllerCommandsAreConsumedOnceAcrossConfigurationUpdates() {
         let controller = BurningPaperController()
         let renderer = RecordingBurningPaperRenderer()
-        let interaction = BurningPaperViewState(seed: 1)
+        let interaction = BurningPaperViewState(controller: controller, seed: 1)
         let coordinator = BurningPaperMetalView.Coordinator()
         coordinator.renderer = renderer
         let point = CGPoint(x: 0.25, y: 0.75)
@@ -29,21 +29,18 @@ final class BurningPaperViewTests: XCTestCase {
         XCTAssertEqual(renderer.configuration.burnSpeed, 1.5)
     }
 
-    func testResetClearsPendingGestureIgnitionsAndPreservesLaterCommandOrder() {
+    func testDragThenResetPreservesOrderSoResetWins() {
         let controller = BurningPaperController()
         let renderer = RecordingBurningPaperRenderer()
-        let interaction = BurningPaperViewState(seed: 2)
+        let interaction = BurningPaperViewState(controller: controller, seed: 2)
         let coordinator = BurningPaperMetalView.Coordinator()
         coordinator.renderer = renderer
-        let point = CGPoint(x: 0.8, y: 0.2)
 
         interaction.dragChanged(
             location: CGPoint(x: 20, y: 20),
-            in: CGSize(width: 100, height: 100),
-            isInteractive: true
+            in: CGSize(width: 100, height: 100)
         )
         controller.reset()
-        controller.ignite(at: point)
 
         coordinator.update(
             controller: controller,
@@ -51,31 +48,107 @@ final class BurningPaperViewTests: XCTestCase {
             configuration: .default
         )
 
-        XCTAssertEqual(renderer.events, [.reset, .path([point])])
-        XCTAssertTrue(interaction.drainPendingIgnitions().isEmpty)
+        XCTAssertEqual(renderer.events.count, 2)
+        guard case .ignitions = renderer.events[0] else {
+            return XCTFail("Expected drag ignitions before reset")
+        }
+        XCTAssertEqual(renderer.events[1], .reset)
+    }
+
+    func testResetThenDragPreservesOrderAndNewDragStartsFresh() {
+        let controller = BurningPaperController()
+        let renderer = RecordingBurningPaperRenderer()
+        let interaction = BurningPaperViewState(controller: controller, seed: 3)
+        let coordinator = BurningPaperMetalView.Coordinator()
+        coordinator.renderer = renderer
+        let size = CGSize(width: 100, height: 100)
+
+        interaction.dragChanged(location: CGPoint(x: 10, y: 10), in: size)
+        coordinator.update(
+            controller: controller,
+            interaction: interaction,
+            configuration: .default
+        )
+        renderer.removeAllEvents()
+
+        controller.reset()
+        interaction.dragChanged(location: CGPoint(x: 90, y: 90), in: size)
+        coordinator.update(
+            controller: controller,
+            interaction: interaction,
+            configuration: .default
+        )
+
+        XCTAssertEqual(renderer.events.count, 2)
+        XCTAssertEqual(renderer.events[0], .reset)
+        guard case let .ignitions(ignitions) = renderer.events[1] else {
+            return XCTFail("Expected new drag ignitions after reset")
+        }
+        XCTAssertEqual(ignitions.count, 1)
+    }
+
+    func testCommandsRemainPendingUntilRendererBecomesAvailable() {
+        let controller = BurningPaperController()
+        let interaction = BurningPaperViewState(controller: controller, seed: 4)
+        let coordinator = BurningPaperMetalView.Coordinator()
+        let point = CGPoint(x: 0.3, y: 0.7)
+
+        controller.ignite(at: point)
+        interaction.dragChanged(
+            location: CGPoint(x: 80, y: 20),
+            in: CGSize(width: 100, height: 100)
+        )
+        coordinator.update(
+            controller: controller,
+            interaction: interaction,
+            configuration: .default
+        )
+
+        let renderer = RecordingBurningPaperRenderer()
+        coordinator.renderer = renderer
+        coordinator.update(
+            controller: controller,
+            interaction: interaction,
+            configuration: .default
+        )
+
+        XCTAssertEqual(renderer.events.count, 2)
+        XCTAssertEqual(renderer.events[0], .path([point]))
+        guard case .ignitions = renderer.events[1] else {
+            return XCTFail("Expected retained gesture ignitions after the command")
+        }
     }
 
     func testInteractiveDragPlansContinuousVariedIgnitions() {
-        let interaction = BurningPaperViewState(seed: 3)
+        let controller = BurningPaperController()
+        let renderer = RecordingBurningPaperRenderer()
+        let interaction = BurningPaperViewState(controller: controller, seed: 5)
+        let coordinator = BurningPaperMetalView.Coordinator()
+        coordinator.renderer = renderer
         let size = CGSize(width: 200, height: 100)
 
         interaction.dragChanged(
             location: CGPoint(x: 20, y: 20),
-            in: size,
-            isInteractive: true
+            in: size
         )
         interaction.dragChanged(
             location: CGPoint(x: 180, y: 80),
-            in: size,
-            isInteractive: true
+            in: size
         )
         interaction.dragEnded(
             location: CGPoint(x: 190, y: 90),
-            in: size,
-            isInteractive: true
+            in: size
+        )
+        coordinator.update(
+            controller: controller,
+            interaction: interaction,
+            configuration: .default
         )
 
-        let ignitions = interaction.drainPendingIgnitions().flatMap { $0 }
+        let ignitions = renderer.events.flatMap { event -> [BurnIgnition] in
+            guard case let .ignitions(ignitions) = event else { return [] }
+            return ignitions
+        }
         XCTAssertGreaterThan(ignitions.count, 3)
         XCTAssertGreaterThan(Set(ignitions.map(\.radiusScale)).count, 1)
         XCTAssertGreaterThan(Set(ignitions.map(\.seed)).count, 1)
@@ -86,20 +159,60 @@ final class BurningPaperViewTests: XCTestCase {
     }
 
     func testNonInteractiveDragDoesNotPlanPackageIgnitions() {
-        let interaction = BurningPaperViewState(seed: 4)
+        let controller = BurningPaperController()
+        let renderer = RecordingBurningPaperRenderer()
+        let interaction = BurningPaperViewState(controller: controller, seed: 6)
+        let coordinator = BurningPaperMetalView.Coordinator()
+        coordinator.renderer = renderer
+        interaction.setInteractive(false)
 
         interaction.dragChanged(
             location: CGPoint(x: 25, y: 25),
-            in: CGSize(width: 100, height: 100),
-            isInteractive: false
+            in: CGSize(width: 100, height: 100)
         )
         interaction.dragEnded(
             location: CGPoint(x: 75, y: 75),
-            in: CGSize(width: 100, height: 100),
-            isInteractive: false
+            in: CGSize(width: 100, height: 100)
+        )
+        coordinator.update(
+            controller: controller,
+            interaction: interaction,
+            configuration: .default
         )
 
-        XCTAssertTrue(interaction.drainPendingIgnitions().isEmpty)
+        XCTAssertTrue(renderer.events.isEmpty)
+    }
+
+    func testDisablingInteractionMidDragPreventsReenabledDragConnectingToOldPoint() {
+        let controller = BurningPaperController()
+        let renderer = RecordingBurningPaperRenderer()
+        let interaction = BurningPaperViewState(controller: controller, seed: 7)
+        let coordinator = BurningPaperMetalView.Coordinator()
+        coordinator.renderer = renderer
+        let size = CGSize(width: 100, height: 100)
+
+        interaction.dragChanged(location: CGPoint(x: 10, y: 10), in: size)
+        coordinator.update(
+            controller: controller,
+            interaction: interaction,
+            configuration: .default
+        )
+        renderer.removeAllEvents()
+
+        interaction.setInteractive(false)
+        interaction.setInteractive(true)
+        interaction.dragChanged(location: CGPoint(x: 90, y: 90), in: size)
+        coordinator.update(
+            controller: controller,
+            interaction: interaction,
+            configuration: .default
+        )
+
+        guard case let .ignitions(ignitions) = renderer.events.first else {
+            return XCTFail("Expected a fresh ignition after re-enabling interaction")
+        }
+        XCTAssertEqual(renderer.events.count, 1)
+        XCTAssertEqual(ignitions.count, 1)
     }
 
     func testMetalViewUsesTransparentHighRefreshRenderingContract() {
@@ -160,6 +273,10 @@ private final class RecordingBurningPaperRenderer: BurningPaperRendering {
 
     func reset() {
         events.append(.reset)
+    }
+
+    func removeAllEvents() {
+        events.removeAll(keepingCapacity: true)
     }
 }
 

@@ -22,8 +22,8 @@ struct BurningPaperMetalView: UIViewRepresentable {
     let controller: BurningPaperController
     let configuration: BurningPaperConfiguration
     let interaction: BurningPaperViewState
+    let isInteractive: Bool
     let commandRevision: UInt64
-    let interactionRevision: UInt64
 
     func makeCoordinator() -> Coordinator {
         Coordinator()
@@ -32,6 +32,8 @@ struct BurningPaperMetalView: UIViewRepresentable {
     func makeUIView(context: Context) -> MTKView {
         let view = MTKView(frame: .zero, device: MTLCreateSystemDefaultDevice())
         Self.configure(view)
+        interaction.bind(to: controller)
+        interaction.setInteractive(isInteractive)
         context.coordinator.installRenderer(in: view, configuration: configuration)
         context.coordinator.update(
             controller: controller,
@@ -44,7 +46,8 @@ struct BurningPaperMetalView: UIViewRepresentable {
 
     func updateUIView(_ view: MTKView, context: Context) {
         _ = commandRevision
-        _ = interactionRevision
+        interaction.bind(to: controller)
+        interaction.setInteractive(isInteractive)
         context.coordinator.update(
             controller: controller,
             interaction: interaction,
@@ -105,24 +108,25 @@ struct BurningPaperMetalView: UIViewRepresentable {
             configuration: BurningPaperConfiguration,
             fallbackView: MTKView? = nil
         ) {
-            renderer?.configuration = configuration
+            guard let renderer else {
+                if rendererInitializationError != nil, let fallbackView {
+                    applyFallback(to: fallbackView, configuration: configuration)
+                }
+                return
+            }
+
+            renderer.configuration = configuration
 
             for command in controller.drainPendingCommands() {
                 switch command.kind {
                 case let .ignite(points):
-                    renderer?.ignite(path: points)
+                    renderer.ignite(path: points)
+                case let .ignitePlanned(ignitions):
+                    renderer.ignite(ignitions)
                 case .reset:
-                    interaction.clearPendingIgnitions()
-                    renderer?.reset()
+                    interaction.resetDragState()
+                    renderer.reset()
                 }
-            }
-
-            for ignitions in interaction.drainPendingIgnitions() {
-                renderer?.ignite(ignitions)
-            }
-
-            if renderer == nil, rendererInitializationError != nil, let fallbackView {
-                applyFallback(to: fallbackView, configuration: configuration)
             }
         }
 
