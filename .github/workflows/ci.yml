@@ -1,0 +1,105 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-and-build:
+    name: Test package and build example
+    runs-on: macos-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Select an installed stable Xcode
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          xcode_app="$(ruby <<'RUBY'
+          require "open3"
+          require "rubygems"
+
+          candidates = Dir["/Applications/Xcode*.app"].each_with_object([]) do |path, result|
+            next if File.basename(path).match?(/(?:beta|rc)/i)
+
+            developer_dir = File.join(path, "Contents", "Developer")
+            environment = { "DEVELOPER_DIR" => developer_dir }
+            version_output, version_status = Open3.capture2e(environment, "xcodebuild", "-version")
+            next unless version_status.success?
+
+            version = version_output[/^Xcode ([0-9]+(?:\.[0-9]+)*)/, 1]
+            next unless version
+            next if Gem::Version.new(version) < Gem::Version.new("16.0")
+
+            _, sdk_status = Open3.capture2e(
+              environment,
+              "xcrun", "--sdk", "iphonesimulator", "--show-sdk-path"
+            )
+            next unless sdk_status.success?
+
+            result << [Gem::Version.new(version), path]
+          end
+
+          selected = candidates.max_by(&:first)
+          puts selected.last if selected
+          RUBY
+          )"
+
+          if [[ -z "$xcode_app" ]]; then
+            echo "::error::No stable Xcode 16 or newer with an iPhone Simulator SDK is installed."
+            exit 1
+          fi
+
+          developer_dir="$xcode_app/Contents/Developer"
+          sudo xcode-select --switch "$developer_dir"
+          echo "DEVELOPER_DIR=$developer_dir" >> "$GITHUB_ENV"
+          xcodebuild -version
+
+      - name: Discover an available iPhone simulator
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          simulator_udid="$(xcrun simctl list devices available --json | ruby -rjson -e '
+            devices = JSON.parse($stdin.read).fetch("devices").values.flatten
+            iphone = devices.find { |device| device.fetch("name", "").start_with?("iPhone") }
+            puts iphone.fetch("udid") if iphone
+          ')"
+
+          if [[ -z "$simulator_udid" ]]; then
+            echo "::error::The selected Xcode has no available iPhone simulator."
+            xcrun simctl list devices available
+            exit 1
+          fi
+
+          echo "SIMULATOR_UDID=$simulator_udid" >> "$GITHUB_ENV"
+          echo "Using iPhone simulator $simulator_udid"
+
+      - name: Test BurningPaper Swift package
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -scheme BurningPaper \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_UDID" \
+            test
+
+      - name: Build example app
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project Example/BurningPaperExample.xcodeproj \
+            -scheme BurningPaperExample \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_UDID" \
+            CODE_SIGNING_ALLOWED=NO \
+            build
