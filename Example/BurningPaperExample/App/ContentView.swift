@@ -1,54 +1,25 @@
+import BurningPaper
 import SwiftUI
 
 struct ContentView: View {
-    @State private var parameters = BurnParameters.defaults
-    @State private var trigger: BurnTrigger?
-    @State private var resetToken = UUID()
+    @StateObject private var controller = BurningPaperController()
+    @State private var configuration = BurningPaperConfiguration.default
     @State private var showsDebugControls = false
-    @State private var lastDragPoint: CGPoint?
-    @State private var ignitionRandom = SeededRandomNumberGenerator(seed: UInt64(Date().timeIntervalSince1970 * 1000))
 
     var body: some View {
-        GeometryReader { proxy in
-            ZStack(alignment: .topTrailing) {
-                AbstractBackgroundView()
-                    .ignoresSafeArea()
-
-                MetalView(
-                    parameters: parameters,
-                    trigger: trigger,
-                    resetToken: resetToken
-                )
+        ZStack(alignment: .topTrailing) {
+            AbstractBackgroundView()
                 .ignoresSafeArea()
-                .contentShape(Rectangle())
-                .gesture(
-                    DragGesture(minimumDistance: 0)
-                        .onChanged { value in
-                            let size = proxy.size
-                            guard size.width > 0, size.height > 0 else { return }
 
-                            let current = normalizedPoint(from: value.location, in: size)
-                            let ignitions = interpolatedIgnitions(from: lastDragPoint, to: current)
-                            lastDragPoint = current
+            BurningPaperView(
+                controller: controller,
+                configuration: configuration
+            )
+            .ignoresSafeArea()
 
-                            trigger = BurnTrigger(ignitions: ignitions)
-                        }
-                        .onEnded { value in
-                            let size = proxy.size
-                            guard size.width > 0, size.height > 0 else { return }
-
-                            let current = normalizedPoint(from: value.location, in: size)
-                            let ignitions = interpolatedIgnitions(from: lastDragPoint, to: current)
-                            lastDragPoint = nil
-
-                            trigger = BurnTrigger(ignitions: ignitions)
-                        }
-                )
-
-                overlayControls
-                    .padding(.top, 12)
-                    .padding(.trailing, 12)
-            }
+            overlayControls
+                .padding(.top, 12)
+                .padding(.trailing, 12)
         }
         .statusBarHidden(true)
     }
@@ -57,9 +28,7 @@ struct ContentView: View {
         VStack(alignment: .trailing, spacing: 10) {
             HStack(spacing: 8) {
                 Button {
-                    resetToken = UUID()
-                    trigger = nil
-                    lastDragPoint = nil
+                    controller.reset()
                 } label: {
                     Image(systemName: "arrow.counterclockwise")
                         .frame(width: 34, height: 34)
@@ -116,22 +85,13 @@ struct ContentView: View {
         }
     }
 
-    private func binding(_ keyPath: WritableKeyPath<BurnParameters, Float>) -> Binding<Double> {
+    private func binding(
+        _ keyPath: WritableKeyPath<BurningPaperConfiguration, Float>
+    ) -> Binding<Double> {
         Binding<Double>(
-            get: { Double(parameters[keyPath: keyPath]) },
-            set: { parameters[keyPath: keyPath] = Float($0) }
+            get: { Double(configuration[keyPath: keyPath]) },
+            set: { configuration[keyPath: keyPath] = Float($0) }
         )
-    }
-
-    private func normalizedPoint(from point: CGPoint, in size: CGSize) -> CGPoint {
-        CGPoint(
-            x: min(max(point.x / size.width, 0), 1),
-            y: min(max(point.y / size.height, 0), 1)
-        )
-    }
-
-    private func interpolatedIgnitions(from start: CGPoint?, to end: CGPoint) -> [BurnIgnition] {
-        BurnIgnitionPlanner.ignitions(from: start, to: end, random: &ignitionRandom)
     }
 }
 

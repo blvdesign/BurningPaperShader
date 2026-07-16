@@ -1,7 +1,7 @@
 import SwiftUI
 
 @main
-struct BurningPaperShaderApp: App {
+struct BurningPaperExampleApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
