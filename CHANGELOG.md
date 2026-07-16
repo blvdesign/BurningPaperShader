@@ -7,6 +7,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-07-16
+
 ### Added
 
 - Swift Package library product named `BurningPaper`.
@@ -17,4 +19,5 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Lower-level Metal renderer for custom integrations.
 - Package-powered iOS Example application.
 
-[Unreleased]: https://github.com/blvdesign/BurningPaperShader/commits/main
+[Unreleased]: https://github.com/blvdesign/BurningPaperShader/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/blvdesign/BurningPaperShader/releases/tag/v0.1.0

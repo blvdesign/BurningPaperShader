@@ -208,7 +208,13 @@ fragment half4 paperFragment(
     float edgeBreakup = signedFbm(uv * 56.0 + signedFbm(uv * 10.0) * 3.4);
     float fineBreakup = signedFbm(uv * float2(150.0, 84.0));
     float edgeCut = clamp(0.70 + edgeBreakup * 0.13 * uniforms.frontComplexity + fineBreakup * 0.032, 0.52, 0.86);
-    float paperAlpha = 1.0 - smoothstep(edgeCut - 0.026, edgeCut + 0.076, burn);
+    // These factors preserve the original 0.026/0.076 transition at the
+    // default edgeWidth while allowing callers to tune the live edge.
+    float paperAlpha = 1.0 - smoothstep(
+        edgeCut - uniforms.edgeWidth * 0.4,
+        edgeCut + uniforms.edgeWidth * 1.17,
+        burn
+    );
 
     float edgeMask = smoothstep(0.018, 0.12, edgeGradient) * (1.0 - smoothstep(edgeCut + 0.14, edgeCut + 0.36, burn));
     edgeMask *= smoothstep(edgeCut - 0.24, edgeCut + 0.06, nearbyBurn + heat * 0.22);
@@ -260,7 +266,7 @@ fragment half4 paperFragment(
     alpha = max(alpha, sootRim * 0.46 + stain * 0.16);
     alpha = max(alpha, interiorAsh * 0.1 + ashFlecks * 0.08);
     alpha = max(alpha, smoke * 0.11 + hotSegments * 0.18 + flameCore * 0.34 + emberDots * 0.08);
-    alpha = clamp(alpha, 0.0, 1.0);
+    alpha = clamp(alpha, 0.0, 1.0) * uniforms.paperColor.a;
 
     return half4(half3(color), half(alpha));
 }

@@ -13,9 +13,20 @@ concurrency:
 
 jobs:
   test-and-build:
-    name: Test package and build example
-    runs-on: macos-latest
+    name: Test (${{ matrix.xcode_selection }})
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            xcode_selection: minimum
+          - runner: macos-latest
+            xcode_selection: latest
+
+    env:
+      XCODE_SELECTION: ${{ matrix.xcode_selection }}
 
     steps:
       - name: Check out repository
@@ -51,7 +62,11 @@ jobs:
             result << [Gem::Version.new(version), path]
           end
 
-          selected = candidates.max_by(&:first)
+          selected = if ENV.fetch("XCODE_SELECTION") == "minimum"
+            candidates.min_by(&:first)
+          else
+            candidates.max_by(&:first)
+          end
           puts selected.last if selected
           RUBY
           )"
@@ -72,7 +87,7 @@ jobs:
           set -euo pipefail
 
           simulator_udid="$(xcrun simctl list devices available --json | ruby -rjson -e '
-            devices = JSON.parse($stdin.read).fetch("devices").values.flatten
+            devices = JSON.parse(STDIN.read).fetch("devices").values.flatten
             iphone = devices.find { |device| device.fetch("name", "").start_with?("iPhone") }
             puts iphone.fetch("udid") if iphone
           ')"

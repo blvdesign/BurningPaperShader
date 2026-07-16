@@ -24,7 +24,8 @@ become transparent, revealing the content behind the paper.
 - A Metal-capable iPhone or iPad, or an iOS simulator
 
 Your local simulator or device OS may require a newer Xcode and SDK. Xcode 26
-is not a package requirement.
+is not a package requirement. CI checks both the oldest installed stable Xcode
+16+ toolchain and the latest stable toolchain on GitHub's macOS runners.
 
 ## Installation
 
@@ -103,7 +104,9 @@ adjustment guidance.
 `BurningPaperRenderer` is available for applications that own an `MTKView` or
 need custom view composition. It conforms to `MTKViewDelegate`, accepts the
 same configuration, and exposes normalized point/path ignition and reset
-commands. Most applications should start with `BurningPaperView`.
+commands. The view must use the renderer's Metal device and pixel format with
+`sampleCount == 1`; call `isCompatible(with:)` before assigning the delegate.
+Most applications should start with `BurningPaperView`.
 
 ## Architecture and performance
 

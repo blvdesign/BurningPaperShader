@@ -43,7 +43,7 @@ look fragmented.
 | `paperWrinkleAmount` | `0...1` | Procedural paper wrinkle contrast. |
 | `smokeAmount` | `0...1` | Grey smoke and ash shading near the edge. |
 | `emberAmount` | `0...1` | Sparse glowing flecks along hot areas. |
-| `paperColor` components | `0...1` | Base RGBA color of intact paper. |
+| `paperColor` components | `0...1` | Base RGB color and overall alpha of the paper layer. |
 
 Flame, smoke, and embers are shader details rather than particle systems.
 Check them against both light and dark backgrounds. Strong values can obscure

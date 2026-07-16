@@ -157,6 +157,10 @@ enum BurningPaperSimulationStepPolicy {
 }
 
 /// A low-level Metal renderer for the procedural burning-paper effect.
+///
+/// The delegated `MTKView` must use the same device and color pixel format
+/// supplied to the initializer, and its `sampleCount` must remain `1`. Use
+/// ``isCompatible(with:)`` before assigning the renderer to a custom view.
 public final class BurningPaperRenderer: NSObject, MTKViewDelegate {
     /// Controls the visual appearance and propagation of the effect.
     public var configuration: BurningPaperConfiguration {
@@ -310,7 +314,8 @@ public final class BurningPaperRenderer: NSObject, MTKViewDelegate {
         }
     }
 
-    func isCompatible(with view: MTKView) -> Bool {
+    /// Returns whether a Metal view satisfies this renderer's pipeline contract.
+    public func isCompatible(with view: MTKView) -> Bool {
         guard let viewDevice = view.device else {
             return false
         }

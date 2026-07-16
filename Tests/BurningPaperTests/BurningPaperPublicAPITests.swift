@@ -1,6 +1,7 @@
 import BurningPaper
 import CoreGraphics
 import Metal
+import MetalKit
 import XCTest
 
 final class BurningPaperPublicAPITests: XCTestCase {
@@ -42,6 +43,11 @@ final class BurningPaperPublicAPITests: XCTestCase {
         renderer.ignite(path: [CGPoint(x: 0.2, y: 0.2), CGPoint(x: 0.8, y: 0.8)])
         renderer.reset()
 
+        let view = MTKView(frame: .zero, device: device)
+        view.colorPixelFormat = .bgra8Unorm
+        view.sampleCount = 1
+
         XCTAssertEqual(renderer.configuration.flameAmount, 0.2)
+        XCTAssertTrue(renderer.isCompatible(with: view))
     }
 }
