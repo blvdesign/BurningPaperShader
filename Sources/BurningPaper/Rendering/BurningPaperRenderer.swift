@@ -156,6 +156,22 @@ enum BurningPaperSimulationStepPolicy {
     }
 }
 
+enum BurningPaperRenderPipelineDescriptor {
+    static func make(colorPixelFormat: MTLPixelFormat) -> MTLRenderPipelineDescriptor {
+        let descriptor = MTLRenderPipelineDescriptor()
+        let attachment = descriptor.colorAttachments[0]
+        attachment?.pixelFormat = colorPixelFormat
+        attachment?.isBlendingEnabled = true
+        attachment?.rgbBlendOperation = .add
+        attachment?.alphaBlendOperation = .add
+        attachment?.sourceRGBBlendFactor = .sourceAlpha
+        attachment?.sourceAlphaBlendFactor = .one
+        attachment?.destinationRGBBlendFactor = .oneMinusSourceAlpha
+        attachment?.destinationAlphaBlendFactor = .oneMinusSourceAlpha
+        return descriptor
+    }
+}
+
 /// A low-level Metal renderer for the procedural burning-paper effect.
 ///
 /// The delegated `MTKView` must use the same device and color pixel format
@@ -212,17 +228,11 @@ public final class BurningPaperRenderer: NSObject, MTKViewDelegate {
             throw BurningPaperRendererError.computePipelineCreationFailed(reason: error.localizedDescription)
         }
 
-        let descriptor = MTLRenderPipelineDescriptor()
+        let descriptor = BurningPaperRenderPipelineDescriptor.make(
+            colorPixelFormat: colorPixelFormat
+        )
         descriptor.vertexFunction = vertexFunction
         descriptor.fragmentFunction = fragmentFunction
-        descriptor.colorAttachments[0].pixelFormat = colorPixelFormat
-        descriptor.colorAttachments[0].isBlendingEnabled = true
-        descriptor.colorAttachments[0].rgbBlendOperation = .add
-        descriptor.colorAttachments[0].alphaBlendOperation = .add
-        descriptor.colorAttachments[0].sourceRGBBlendFactor = .sourceAlpha
-        descriptor.colorAttachments[0].sourceAlphaBlendFactor = .sourceAlpha
-        descriptor.colorAttachments[0].destinationRGBBlendFactor = .oneMinusSourceAlpha
-        descriptor.colorAttachments[0].destinationAlphaBlendFactor = .oneMinusSourceAlpha
 
         let renderPipeline: MTLRenderPipelineState
         do {

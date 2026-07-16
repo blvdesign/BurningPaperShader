@@ -38,6 +38,18 @@ final class BurningPaperRendererTests: XCTestCase {
         )
     }
 
+    func testRenderPipelineUsesStraightAlphaCompositing() {
+        let descriptor = BurningPaperRenderPipelineDescriptor.make(
+            colorPixelFormat: .bgra8Unorm
+        )
+        let attachment = descriptor.colorAttachments[0]
+
+        XCTAssertEqual(attachment?.sourceRGBBlendFactor, .sourceAlpha)
+        XCTAssertEqual(attachment?.sourceAlphaBlendFactor, .one)
+        XCTAssertEqual(attachment?.destinationRGBBlendFactor, .oneMinusSourceAlpha)
+        XCTAssertEqual(attachment?.destinationAlphaBlendFactor, .oneMinusSourceAlpha)
+    }
+
     func testStateTextureSizeCapsLongDimensionAndPreservesAspectRatio() {
         XCTAssertEqual(
             BurningPaperStateTextureSizer.size(
