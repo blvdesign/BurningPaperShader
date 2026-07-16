@@ -59,6 +59,18 @@ jobs:
             )
             next unless sdk_status.success?
 
+            destinations_output, destinations_status = Open3.capture2e(
+              environment,
+              "xcodebuild", "-scheme", "BurningPaper", "-showdestinations"
+            )
+            next unless destinations_status.success?
+
+            available_destinations = destinations_output[
+              /Available destinations for the "BurningPaper" scheme:(.*?)(?:Ineligible destinations|\z)/m,
+              1
+            ]
+            next unless available_destinations&.include?("platform:iOS Simulator")
+
             result << [Gem::Version.new(version), path]
           end
 
