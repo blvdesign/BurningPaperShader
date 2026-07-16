@@ -260,7 +260,7 @@ fragment half4 paperFragment(
     alpha = max(alpha, sootRim * 0.46 + stain * 0.16);
     alpha = max(alpha, interiorAsh * 0.1 + ashFlecks * 0.08);
     alpha = max(alpha, smoke * 0.11 + hotSegments * 0.18 + flameCore * 0.34 + emberDots * 0.08);
-    alpha = clamp(alpha, 0.0, 1.0) * uniforms.paperColor.a;
+    alpha = clamp(alpha, 0.0, 1.0);
 
     return half4(half3(color), half(alpha));
 }

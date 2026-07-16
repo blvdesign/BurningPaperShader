@@ -20,6 +20,8 @@ let package = Package(
         ),
         .target(
             name: "BurningPaper",
+            // TN3133: keep Shaders.metal as source. Xcode's CompileMetalFile/MetalLink
+            // stages Bundle.module/default.metallib; declaring it as .copy would be incorrect.
             dependencies: ["BurningPaperShaderTypes"]
         ),
         .testTarget(

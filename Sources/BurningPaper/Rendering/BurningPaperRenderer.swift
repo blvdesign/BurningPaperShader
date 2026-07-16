@@ -9,30 +9,59 @@ struct BurningPaperTextureSize: Equatable {
 }
 
 enum BurningPaperStateTextureSizer {
-    static func size(for drawableSize: CGSize, maxDimension: Int) -> BurningPaperTextureSize {
-        guard drawableSize.width > 1, drawableSize.height > 1 else {
-            return BurningPaperTextureSize(width: maxDimension, height: maxDimension)
+    static func size(for drawableSize: CGSize, maxDimension: Int) -> BurningPaperTextureSize? {
+        guard drawableSize.width.isFinite,
+              drawableSize.height.isFinite,
+              drawableSize.width > 0,
+              drawableSize.height > 0,
+              maxDimension > 0 else {
+            return nil
         }
 
-        if drawableSize.width >= drawableSize.height {
-            let height = max(1, Int(round(CGFloat(maxDimension) * drawableSize.height / drawableSize.width)))
-            return BurningPaperTextureSize(width: maxDimension, height: height)
+        let scale = min(1, CGFloat(maxDimension) / max(drawableSize.width, drawableSize.height))
+        return BurningPaperTextureSize(
+            width: max(1, Int(round(drawableSize.width * scale))),
+            height: max(1, Int(round(drawableSize.height * scale)))
+        )
+    }
+}
+
+struct BurningPaperTextureState<Texture> {
+    private(set) var read: Texture?
+    private(set) var write: Texture?
+    private(set) var size: BurningPaperTextureSize?
+
+    var isAllocated: Bool {
+        read != nil && write != nil && size != nil
+    }
+
+    mutating func replace(
+        size: BurningPaperTextureSize,
+        makeTexture: () -> Texture?
+    ) -> Bool {
+        guard let newRead = makeTexture(), let newWrite = makeTexture() else {
+            return false
         }
 
-        let width = max(1, Int(round(CGFloat(maxDimension) * drawableSize.width / drawableSize.height)))
-        return BurningPaperTextureSize(width: width, height: maxDimension)
+        read = newRead
+        write = newWrite
+        self.size = size
+        return true
+    }
+
+    mutating func swap() {
+        Swift.swap(&read, &write)
     }
 }
 
 struct BurningPaperIgnitionQueue {
     static let maximumIgnitionsPerFrame = 18
-    static let maximumIgnitionsPerBatch = BurnIgnitionPlanner.maximumIgnitionsPerPath
-    static let maximumQueuedIgnitions = maximumIgnitionsPerBatch * 8
+    static let maximumQueuedIgnitions = 96
 
-    private var batches: [[BurnIgnition]] = []
+    private var pending: [BurnIgnition] = []
 
     var count: Int {
-        batches.reduce(0) { $0 + $1.count }
+        pending.count
     }
 
     mutating func enqueue(_ ignitions: [BurnIgnition]) {
@@ -40,36 +69,41 @@ struct BurningPaperIgnitionQueue {
             return
         }
 
-        for start in stride(from: 0, to: ignitions.count, by: Self.maximumIgnitionsPerBatch) {
-            let end = min(start + Self.maximumIgnitionsPerBatch, ignitions.count)
-            batches.append(Array(ignitions[start..<end]))
-        }
-
-        while count > Self.maximumQueuedIgnitions, batches.count > 1 {
-            batches.removeFirst()
+        let newestBatch = Self.evenlyDownsampled(
+            ignitions,
+            maximumCount: Self.maximumQueuedIgnitions
+        )
+        if pending.count + newestBatch.count > Self.maximumQueuedIgnitions {
+            pending = newestBatch
+        } else {
+            pending.append(contentsOf: newestBatch)
         }
     }
 
     mutating func drainFrame() -> [BurnIgnition] {
-        var result: [BurnIgnition] = []
-        var remainingCapacity = Self.maximumIgnitionsPerFrame
-
-        while remainingCapacity > 0, !batches.isEmpty {
-            let drainCount = min(remainingCapacity, batches[0].count)
-            result.append(contentsOf: batches[0].prefix(drainCount))
-            batches[0].removeFirst(drainCount)
-            remainingCapacity -= drainCount
-
-            if batches[0].isEmpty {
-                batches.removeFirst()
-            }
-        }
-
+        let drainCount = min(Self.maximumIgnitionsPerFrame, pending.count)
+        let result = Array(pending.prefix(drainCount))
+        pending.removeFirst(drainCount)
         return result
     }
 
     mutating func removeAll() {
-        batches.removeAll(keepingCapacity: true)
+        pending.removeAll(keepingCapacity: true)
+    }
+
+    private static func evenlyDownsampled(
+        _ ignitions: [BurnIgnition],
+        maximumCount: Int
+    ) -> [BurnIgnition] {
+        guard ignitions.count > maximumCount else {
+            return ignitions
+        }
+
+        let lastIndex = ignitions.count - 1
+        return (0..<maximumCount).map { sampleIndex in
+            let position = Double(sampleIndex) * Double(lastIndex) / Double(maximumCount - 1)
+            return ignitions[Int(position.rounded())]
+        }
     }
 }
 
@@ -86,28 +120,63 @@ enum BurningPaperFrameIgnitionPolicy {
     }
 }
 
+struct BurningPaperSimulationStep {
+    let ignition: BurnIgnition?
+    let deltaTime: Float
+    let resetsState: Bool
+}
+
+enum BurningPaperSimulationStepPolicy {
+    static func steps(
+        ignitions: [BurnIgnition],
+        frameDeltaTime: Float,
+        isResetting: Bool
+    ) -> [BurningPaperSimulationStep] {
+        if isResetting {
+            return [
+                BurningPaperSimulationStep(ignition: nil, deltaTime: 0, resetsState: true),
+                BurningPaperSimulationStep(
+                    ignition: nil,
+                    deltaTime: frameDeltaTime,
+                    resetsState: false
+                )
+            ]
+        }
+
+        let injectionSteps = ignitions.map {
+            BurningPaperSimulationStep(ignition: $0, deltaTime: 0, resetsState: false)
+        }
+        return injectionSteps + [
+            BurningPaperSimulationStep(
+                ignition: nil,
+                deltaTime: frameDeltaTime,
+                resetsState: false
+            )
+        ]
+    }
+}
+
 /// A low-level Metal renderer for the procedural burning-paper effect.
 public final class BurningPaperRenderer: NSObject, MTKViewDelegate {
     /// Controls the visual appearance and propagation of the effect.
     public var configuration: BurningPaperConfiguration {
-        get { storedConfiguration }
-        set { storedConfiguration = newValue.sanitized }
+        get { withStateLock { storedConfiguration } }
+        set { withStateLock { storedConfiguration = newValue.sanitized } }
     }
 
     private let device: MTLDevice
+    private let colorPixelFormat: MTLPixelFormat
     private let commandQueue: MTLCommandQueue
     private let computePipeline: MTLComputePipelineState
     private let renderPipeline: MTLRenderPipelineState
+    private let stateLock = NSLock()
     private var storedConfiguration = BurningPaperConfiguration.default.sanitized
-    private var stateRead: MTLTexture?
-    private var stateWrite: MTLTexture?
+    private var textureState = BurningPaperTextureState<MTLTexture>()
     private var startTime = CACurrentMediaTime()
     private var lastFrameTime = CACurrentMediaTime()
     private var pendingIgnitions = BurningPaperIgnitionQueue()
     private var shouldResetState = true
     private let maxStateTextureDimension = 1024
-    private var stateTextureWidth = 0
-    private var stateTextureHeight = 0
 
     /// Creates a renderer using the precompiled Metal library bundled with this package.
     public init(device: MTLDevice, colorPixelFormat: MTLPixelFormat) throws {
@@ -159,6 +228,7 @@ public final class BurningPaperRenderer: NSObject, MTKViewDelegate {
         }
 
         self.device = device
+        self.colorPixelFormat = colorPixelFormat
         self.commandQueue = commandQueue
         self.computePipeline = computePipeline
         self.renderPipeline = renderPipeline
@@ -171,8 +241,10 @@ public final class BurningPaperRenderer: NSObject, MTKViewDelegate {
             return
         }
 
-        var random = SystemRandomNumberGenerator()
-        ignite(BurnIgnitionPlanner.ignitions(for: [point], random: &random))
+        withStateLock {
+            var random = SystemRandomNumberGenerator()
+            enqueueLocked(BurnIgnitionPlanner.ignitions(for: [point], random: &random))
+        }
     }
 
     /// Ignites the paper along a path of normalized coordinates.
@@ -182,19 +254,29 @@ public final class BurningPaperRenderer: NSObject, MTKViewDelegate {
             return
         }
 
-        var random = SystemRandomNumberGenerator()
-        ignite(BurnIgnitionPlanner.ignitions(for: points, random: &random))
+        withStateLock {
+            var random = SystemRandomNumberGenerator()
+            enqueueLocked(BurnIgnitionPlanner.ignitions(for: points, random: &random))
+        }
     }
 
     /// Restores the paper to its initial unburned state.
     public func reset() {
-        shouldResetState = true
-        pendingIgnitions.removeAll()
-        startTime = CACurrentMediaTime()
-        lastFrameTime = startTime
+        withStateLock {
+            shouldResetState = true
+            pendingIgnitions.removeAll()
+            startTime = CACurrentMediaTime()
+            lastFrameTime = startTime
+        }
     }
 
     func ignite(_ burnIgnitions: [BurnIgnition]) {
+        withStateLock {
+            enqueueLocked(burnIgnitions)
+        }
+    }
+
+    private func enqueueLocked(_ burnIgnitions: [BurnIgnition]) {
         let sanitized = burnIgnitions.compactMap { ignition -> BurnIgnition? in
             guard let point = Self.normalized(ignition.normalizedPoint),
                   ignition.radiusScale.isFinite,
@@ -214,12 +296,34 @@ public final class BurningPaperRenderer: NSObject, MTKViewDelegate {
     }
 
     public func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {
-        ensureStateTextures(for: size)
-        shouldResetState = true
+        withStateLock {
+            guard isCompatible(with: view) else {
+                return
+            }
+            _ = ensureStateTextures(for: size)
+        }
     }
 
     public func draw(in view: MTKView) {
-        guard let drawable = view.currentDrawable,
+        withStateLock {
+            drawLocked(in: view)
+        }
+    }
+
+    func isCompatible(with view: MTKView) -> Bool {
+        guard let viewDevice = view.device else {
+            return false
+        }
+
+        return (viewDevice as AnyObject) === (device as AnyObject) &&
+            view.colorPixelFormat == colorPixelFormat &&
+            view.sampleCount == 1
+    }
+
+    private func drawLocked(in view: MTKView) {
+        guard isCompatible(with: view),
+              ensureStateTextures(for: view.drawableSize),
+              let drawable = view.currentDrawable,
               let renderPassDescriptor = view.currentRenderPassDescriptor,
               let commandBuffer = commandQueue.makeCommandBuffer() else {
             return
@@ -229,31 +333,35 @@ public final class BurningPaperRenderer: NSObject, MTKViewDelegate {
         let deltaTime = min(Float(now - lastFrameTime), 1.0 / 30.0)
         lastFrameTime = now
 
-        ensureStateTextures(for: view.drawableSize)
-
         let time = Float(now - startTime)
         let ignitions = BurningPaperFrameIgnitionPolicy.takeIgnitions(
             from: &pendingIgnitions,
             isResetting: shouldResetState
         )
-        let ignitionPasses: [BurnIgnition?] = shouldResetState ? [nil] : (ignitions.map(Optional.some) + [nil])
+        let steps = BurningPaperSimulationStepPolicy.steps(
+            ignitions: ignitions,
+            frameDeltaTime: deltaTime,
+            isResetting: shouldResetState
+        )
 
-        for ignition in ignitionPasses {
+        for step in steps {
             var uniforms = makeUniforms(
                 time: time,
-                deltaTime: deltaTime,
+                deltaTime: step.deltaTime,
                 viewSize: view.drawableSize,
-                ignition: ignition
+                ignition: step.ignition,
+                resetState: step.resetsState
             )
             encodeComputePass(commandBuffer: commandBuffer, uniforms: &uniforms)
-            swap(&stateRead, &stateWrite)
+            textureState.swap()
         }
 
         var renderUniforms = makeUniforms(
             time: time,
             deltaTime: deltaTime,
             viewSize: view.drawableSize,
-            ignition: nil
+            ignition: nil,
+            resetState: false
         )
         encodeRenderPass(
             commandBuffer: commandBuffer,
@@ -271,11 +379,13 @@ public final class BurningPaperRenderer: NSObject, MTKViewDelegate {
         time: Float,
         deltaTime: Float,
         viewSize: CGSize,
-        ignition: BurnIgnition?
+        ignition: BurnIgnition?,
+        resetState: Bool
     ) -> BurningPaperUniforms {
         let parameters = storedConfiguration
+        let textureSize = textureState.size ?? BurningPaperTextureSize(width: 0, height: 0)
         var uniforms = BurningPaperUniforms()
-        uniforms.textureSize = SIMD2(Float(stateTextureWidth), Float(stateTextureHeight))
+        uniforms.textureSize = SIMD2(Float(textureSize.width), Float(textureSize.height))
         uniforms.viewSize = SIMD2(Float(viewSize.width), Float(viewSize.height))
         uniforms.paperColor = SIMD4(
             parameters.paperColor.red,
@@ -307,47 +417,49 @@ public final class BurningPaperRenderer: NSObject, MTKViewDelegate {
         uniforms.paperWrinkleAmount = parameters.paperWrinkleAmount
         uniforms.smokeAmount = parameters.smokeAmount
         uniforms.emberAmount = parameters.emberAmount
-        uniforms.resetState = shouldResetState ? 1 : 0
+        uniforms.resetState = resetState ? 1 : 0
         uniforms.padding0 = 0
         uniforms.padding1 = 0
         uniforms.padding2 = 0
         return uniforms
     }
 
-    private func ensureStateTextures(for drawableSize: CGSize) {
-        let size = BurningPaperStateTextureSizer.size(
+    private func ensureStateTextures(for drawableSize: CGSize) -> Bool {
+        guard let size = BurningPaperStateTextureSizer.size(
             for: drawableSize,
             maxDimension: maxStateTextureDimension
-        )
-        guard stateTextureWidth != size.width || stateTextureHeight != size.height || stateRead == nil else {
-            return
+        ) else {
+            return textureState.isAllocated
         }
 
-        stateTextureWidth = size.width
-        stateTextureHeight = size.height
-        makeStateTextures(width: size.width, height: size.height)
-        shouldResetState = true
-    }
+        guard textureState.size != size || !textureState.isAllocated else {
+            return true
+        }
 
-    private func makeStateTextures(width: Int, height: Int) {
         let descriptor = MTLTextureDescriptor.texture2DDescriptor(
             pixelFormat: .rgba16Float,
-            width: width,
-            height: height,
+            width: size.width,
+            height: size.height,
             mipmapped: false
         )
         descriptor.usage = [.shaderRead, .shaderWrite]
         descriptor.storageMode = .private
-        stateRead = device.makeTexture(descriptor: descriptor)
-        stateWrite = device.makeTexture(descriptor: descriptor)
+
+        let replaced = textureState.replace(size: size) {
+            device.makeTexture(descriptor: descriptor)
+        }
+        if replaced {
+            shouldResetState = true
+        }
+        return textureState.isAllocated
     }
 
     private func encodeComputePass(
         commandBuffer: MTLCommandBuffer,
         uniforms: inout BurningPaperUniforms
     ) {
-        guard let stateRead,
-              let stateWrite,
+        guard let stateRead = textureState.read,
+              let stateWrite = textureState.write,
               let encoder = commandBuffer.makeComputeCommandEncoder() else {
             return
         }
@@ -360,7 +472,7 @@ public final class BurningPaperRenderer: NSObject, MTKViewDelegate {
         let width = computePipeline.threadExecutionWidth
         let height = max(1, computePipeline.maxTotalThreadsPerThreadgroup / width)
         encoder.dispatchThreads(
-            MTLSize(width: stateTextureWidth, height: stateTextureHeight, depth: 1),
+            MTLSize(width: stateRead.width, height: stateRead.height, depth: 1),
             threadsPerThreadgroup: MTLSize(width: width, height: height, depth: 1)
         )
         encoder.endEncoding()
@@ -375,7 +487,7 @@ public final class BurningPaperRenderer: NSObject, MTKViewDelegate {
         renderPassDescriptor.colorAttachments[0].loadAction = .clear
         renderPassDescriptor.colorAttachments[0].clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 0)
 
-        guard let stateRead,
+        guard let stateRead = textureState.read,
               let encoder = commandBuffer.makeRenderCommandEncoder(descriptor: renderPassDescriptor) else {
             return
         }
@@ -396,5 +508,11 @@ public final class BurningPaperRenderer: NSObject, MTKViewDelegate {
             x: min(max(point.x, 0), 1),
             y: min(max(point.y, 0), 1)
         )
+    }
+
+    private func withStateLock<Result>(_ body: () throws -> Result) rethrows -> Result {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return try body()
     }
 }

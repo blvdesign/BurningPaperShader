@@ -1,4 +1,7 @@
+import CoreGraphics
+import Foundation
 import Metal
+import MetalKit
 import XCTest
 @testable import BurningPaper
 
@@ -52,6 +55,37 @@ final class BurningPaperRendererTests: XCTestCase {
         )
     }
 
+    func testStateTextureSizeDoesNotUpscaleSmallDrawable() {
+        XCTAssertEqual(
+            BurningPaperStateTextureSizer.size(
+                for: CGSize(width: 320, height: 480),
+                maxDimension: 1024
+            ),
+            BurningPaperTextureSize(width: 320, height: 480)
+        )
+    }
+
+    func testStateTextureSizeRejectsInvalidDrawable() {
+        XCTAssertNil(
+            BurningPaperStateTextureSizer.size(
+                for: .zero,
+                maxDimension: 1024
+            )
+        )
+        XCTAssertNil(
+            BurningPaperStateTextureSizer.size(
+                for: CGSize(width: CGFloat.nan, height: 480),
+                maxDimension: 1024
+            )
+        )
+        XCTAssertNil(
+            BurningPaperStateTextureSizer.size(
+                for: CGSize(width: 320, height: CGFloat.infinity),
+                maxDimension: 1024
+            )
+        )
+    }
+
     func testIgnitionQueuePreservesAllPointsInOneMaximumLengthPath() {
         let path = (0..<BurnIgnitionPlanner.maximumIgnitionsPerPath).map { index in
             BurnIgnition(
@@ -73,21 +107,21 @@ final class BurningPaperRendererTests: XCTestCase {
         XCTAssertEqual(drained.count, 96)
     }
 
-    func testIgnitionQueueEvictsOnlyCompleteOldestBatchesAtCapacity() {
+    func testIgnitionQueueKeepsNewestCompletePathWithinNinetySixTotal() {
         let oldPath = makeIgnitions(count: 96, seedOffset: 0)
-        let preservedPaths = (1...8).map { makeIgnitions(count: 96, seedOffset: $0 * 100) }
+        let newestPath = makeIgnitions(count: 24, seedOffset: 100)
         var queue = BurningPaperIgnitionQueue()
 
         queue.enqueue(oldPath)
-        preservedPaths.forEach { queue.enqueue($0) }
+        queue.enqueue(newestPath)
 
         var drained: [BurnIgnition] = []
         while queue.count > 0 {
             drained.append(contentsOf: queue.drainFrame())
         }
 
-        XCTAssertEqual(drained, preservedPaths.flatMap { $0 })
-        XCTAssertFalse(drained.contains { $0.seed < 100 })
+        XCTAssertEqual(BurningPaperIgnitionQueue.maximumQueuedIgnitions, 96)
+        XCTAssertEqual(drained, newestPath)
     }
 
     func testResetFramePreservesQueuedIgnitionsForFollowingFrame() {
@@ -107,6 +141,100 @@ final class BurningPaperRendererTests: XCTestCase {
         XCTAssertTrue(resetFrame.isEmpty)
         XCTAssertEqual(followingFrame, Array(path.prefix(18)))
         XCTAssertEqual(queue.count, 6)
+    }
+
+    func testIgnitionPassesDoNotAdvanceSimulationBeforeSingleFrameStep() {
+        let ignitions = makeIgnitions(count: 3, seedOffset: 0)
+
+        let steps = BurningPaperSimulationStepPolicy.steps(
+            ignitions: ignitions,
+            frameDeltaTime: 0.025,
+            isResetting: false
+        )
+
+        XCTAssertEqual(steps.map(\.deltaTime), [0, 0, 0, 0.025])
+        XCTAssertEqual(steps.compactMap(\.ignition), ignitions)
+        XCTAssertNil(steps.last?.ignition)
+        XCTAssertEqual(steps.filter { $0.deltaTime > 0 }.count, 1)
+    }
+
+    func testResetPassPrecedesSingleFrameStepWithoutAdvancingTime() {
+        let steps = BurningPaperSimulationStepPolicy.steps(
+            ignitions: [],
+            frameDeltaTime: 0.025,
+            isResetting: true
+        )
+
+        XCTAssertEqual(steps.map(\.deltaTime), [0, 0.025])
+        XCTAssertEqual(steps.map(\.resetsState), [true, false])
+        XCTAssertEqual(steps.filter { $0.deltaTime > 0 }.count, 1)
+    }
+
+    func testTextureStateReplacementIsAtomicWhenSecondAllocationFails() {
+        var state = BurningPaperTextureState<String>()
+        var initialTextures = ["old-read", "old-write"].makeIterator()
+        XCTAssertTrue(
+            state.replace(
+                size: BurningPaperTextureSize(width: 320, height: 480),
+                makeTexture: { initialTextures.next() }
+            )
+        )
+
+        var allocationCount = 0
+        XCTAssertFalse(
+            state.replace(
+                size: BurningPaperTextureSize(width: 640, height: 960),
+                makeTexture: {
+                    allocationCount += 1
+                    return allocationCount == 1 ? "new-read" : nil
+                }
+            )
+        )
+
+        XCTAssertEqual(state.read, "old-read")
+        XCTAssertEqual(state.write, "old-write")
+        XCTAssertEqual(state.size, BurningPaperTextureSize(width: 320, height: 480))
+    }
+
+    func testRendererRejectsIncompatibleMTKViewContract() throws {
+        let device = try XCTUnwrap(MTLCreateSystemDefaultDevice())
+        let renderer = try BurningPaperRenderer(device: device, colorPixelFormat: .bgra8Unorm)
+        let view = MTKView(frame: .zero, device: device)
+        view.colorPixelFormat = .bgra8Unorm
+        view.sampleCount = 1
+
+        XCTAssertTrue(renderer.isCompatible(with: view))
+
+        view.colorPixelFormat = .rgba16Float
+        XCTAssertFalse(renderer.isCompatible(with: view))
+
+        view.colorPixelFormat = .bgra8Unorm
+        view.sampleCount = 4
+        XCTAssertFalse(renderer.isCompatible(with: view))
+
+        view.sampleCount = 1
+        view.device = nil
+        XCTAssertFalse(renderer.isCompatible(with: view))
+    }
+
+    func testPublicMutationCanBeCalledConcurrentlyWithoutDeadlock() throws {
+        let device = try XCTUnwrap(MTLCreateSystemDefaultDevice())
+        let renderer = try BurningPaperRenderer(device: device, colorPixelFormat: .bgra8Unorm)
+
+        DispatchQueue.concurrentPerform(iterations: 200) { index in
+            switch index % 4 {
+            case 0:
+                renderer.configuration = BurningPaperConfiguration(burnSpeed: Float(index % 3) + 0.5)
+            case 1:
+                renderer.ignite(at: CGPoint(x: 0.25, y: 0.75))
+            case 2:
+                renderer.ignite(path: [CGPoint(x: 0.1, y: 0.1), CGPoint(x: 0.9, y: 0.9)])
+            default:
+                renderer.reset()
+            }
+        }
+
+        XCTAssertTrue((0.01...3).contains(renderer.configuration.burnSpeed))
     }
 
     private func makeIgnitions(count: Int, seedOffset: Int) -> [BurnIgnition] {
